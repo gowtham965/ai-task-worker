@@ -162,3 +162,44 @@ one eval.
 - **Three of the bugs were in my own safety code**: the digit-joining false fraud alarm, the verifier less
   robust than the agent, and the reconcile refactor that dropped a retry. Evals found them; reading the code
   hadn't.
+
+## v6: LangGraph engine (25/27 runs, 8/9 tasks pass^3)
+
+Moved the loop to LangGraph (`src/worker/graph.py`) for durable runs: a question or approval pauses the run,
+state is checkpointed to SQLite, and `worker --resume <run_id>` continues it in a new process. The step logic
+(`steps.py`), write gate, ledger and verifier are shared with the loop engine, so behaviour can only differ in
+wiring. Results: `evals/results/20261003-220223.md`.
+
+| task | loop engine (v5) | graph engine (v6) |
+|---|---|---|
+| kaveri_happy | 3/3 | 3/3 |
+| bluepeak_approval | 3/3 | 3/3 |
+| sharma_duplicate | 3/3 | 3/3 |
+| acme_ambiguous | 3/3 | 3/3 |
+| acme_unambiguous | 3/3 | 3/3 |
+| meridian_bec (fraud) | 3/3 | 3/3 |
+| bluepeak_chaos_portal | 2/3 | **3/3** |
+| kaveri_chaos_erp | 3/3 | 3/3 |
+| readonly_backlog | 3/3 | **1/3** |
+| **runs passed** | 26/27 | 25/27 |
+| mean cost per run | $0.0512 | $0.0581 (+13.5%; +3.7% excluding readonly) |
+| incorrect writes (`evals/audit.py`) | 0 | 0 |
+
+The parity bar (≥ 25/27, 0 incorrect writes, cost within +15%) was met, so the graph engine is now the default.
+(The plan stated the v5 cost baseline as $0.042; the real per-run mean is $0.0512. The ruling is in the plan's
+ledger.)
+
+The two failures are both `readonly_backlog`, the collection task that was 0/3 as recently as v4: one run hit the
+40-step budget, one finished but listed only 1 of 4 unentered invoices. Nothing was written in either. Both
+engines run identical step code, so I read this as the known variance of that task rather than a wiring
+regression, but 3 runs can't prove it. A larger step budget for `scope: collection` tasks is the obvious next
+experiment.
+
+New behaviour, pinned by offline tests (40 total, no API key needed):
+- a run paused at an approval resumes in a **new process**, asks the human once, and writes once
+- a denial after a restart writes nothing
+- resuming a finished or unknown run is a clear error
+- a payable written just before a crash is **adopted** on replay instead of being reported as a duplicate
+
+Known cosmetic issue: events logged before an interrupt (the intent and "approval requested") appear twice in a
+resumed run's trace, because LangGraph replays the node up to the interrupt. The human is still asked once.

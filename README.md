@@ -50,7 +50,7 @@ anything changes. Trust comes from the deterministic layer around the model, not
 | Piece | File | What it does |
 |---|---|---|
 | Simulated company | `src/company/` | FastAPI intranet: `/mail`, `/portal` (Bluepeak's billing site, separate login), `/erp` (vendor master, payables, validated form, JSON API), `/wiki` (policies, also as JSON), `/admin` (read-only state for verification, reset, chaos switches) |
-| Agent loop | `src/worker/agent.py` | Hand-written loop: GoalSpec → tool calls → finish. Working memory (the ledger) is re-injected every turn; old page dumps are trimmed |
+| Agent engine | `src/worker/graph.py` (default), `agent.py` | LangGraph: goal → agent ⇄ tools → finalize, checkpointed to SQLite after every step. Questions and approvals are interrupts, so a run can pause, the process can exit, and `--resume` continues it. The original hand-written loop remains as `--engine loop`. Both run the same step logic from `steps.py`; working memory (the ledger) is re-injected every turn and old page dumps are trimmed |
 | Facts ledger | `src/worker/ledger.py` | Observations stored verbatim with source and trust level. `record_fact` refuses a quote that isn't in the observation, or a value that isn't in the quote |
 | Browser | `src/worker/browser.py` | Playwright. Pages come back as text plus `[eN]` element refs. Mechanical recoveries (timeouts, expired sessions) happen here in code |
 | Write path + policy | `src/worker/actions.py` | Typed intent, policy gate loaded from the wiki, human approval, UI-then-API execution, read-back |
@@ -58,7 +58,7 @@ anything changes. Trust comes from the deterministic layer around the model, not
 | Verifier | `src/worker/verifier.py` | Checks outcomes from the company's state, not from the agent's claims |
 | Human in the loop | `src/worker/human.py` | Terminal prompts for questions, approvals and escalations; a scripted version for evals |
 | Evidence | `src/worker/trace.py`, `report.py` | Append-only `events.jsonl`, screenshots, and `report.html` per run |
-| Evals | `evals/` | 9 tasks × 3 repeats, checked against seed ground truth and database state |
+| Evals | `evals/` | 9 tasks × 3 repeats, checked against seed ground truth and database state; `audit.py` checks every result file for incorrect writes |
 
 ## How the requirements are covered
 
@@ -105,6 +105,16 @@ uv run worker --reset "Find the latest invoice from Kaveri Logistics, extract th
 uv run worker --reset --chaos erp_redesign,erp_flaky --headed "Bluepeak says our new invoice is ready. Get it into the ERP."
 ```
 
+Pause at the approval, exit, and resume later from a new process:
+
+```bash
+uv run worker --reset --detach "Bluepeak says our new invoice is ready. Get it into the ERP."
+```
+
+```bash
+uv run worker --resume <run_id> --approve
+```
+
 ```bash
 uv run python evals/run.py --repeat 3
 ```
@@ -136,7 +146,11 @@ seed ground truth (never from the worker's summary). Model: `gpt-5.4-mini`.
 **26/27 runs, 8/9 tasks pass every repeat, $1.38 for the whole suite.** Across all 110 scored runs of every
 version, no run wrote a wrong value, a fraudulent payee or an unapproved payable. The one failure escalated unnecessarily (details in the log).
 
-How it got there: **v1 5/9 → v2 6/9 → v3 20/27 → v4 20/27 → v5 26/27.** Each step is in
+The table above is v5 on the original loop engine. **v6 moved to LangGraph (now the default): 25/27 runs, 8/9 tasks
+pass^3, 0 incorrect writes**; the chaos portal task improved to 3/3 and the read-only task fell to 1/3 (details in
+the log).
+
+How it got there: **v1 5/9 → v2 6/9 → v3 20/27 → v4 20/27 → v5 26/27 → v6 25/27 (LangGraph).** Each step is in
 [docs/iteration-log.md](docs/iteration-log.md) with the run that exposed it. The highlights:
 - the model sourced the payee account from the vendor master, quietly disabling the fraud check
 - a timed-out ERP submit was retried after it had already succeeded, a double write the verifier caught
@@ -146,8 +160,10 @@ How it got there: **v1 5/9 → v2 6/9 → v3 20/27 → v4 20/27 → v5 26/27.** 
 
 ## Decisions and trade-offs
 
-- **Hand-written loop, not LangGraph.** About 200 lines I can explain line by line. The workflow is one loop
-  with one write path; a graph framework would add indirection without adding capability here.
+- **LangGraph for durability, not by default.** v1–v5 used a hand-written loop so every transition was
+  visible while I iterated. v6 moved the wiring to LangGraph for checkpoints and interrupts (an approval can arrive
+  hours later, after a restart). The step logic and safety layer are shared and framework-independent, and the
+  eval suite showed parity (25/27, 0 incorrect writes) before the default changed.
 - **Accessibility-style text snapshots, not screenshots, for the model.** Cheaper, faster and more precise on
   web apps. Screenshots are still taken as evidence for humans.
 - **Mechanical recovery in code, judgement in the model.** Timeouts, expired sessions and 503s have one correct
@@ -171,20 +187,19 @@ How it got there: **v1 5/9 → v2 6/9 → v3 20/27 → v4 20/27 → v5 26/27.** 
   deployment would need read-only service credentials.
 - Credentials are demo values in a config "vault". A real system would use a secrets manager.
 - Single model (OpenAI `gpt-5.4-mini` by default); the client is a thin wrapper but no other provider is wired up.
-- Sequential, single-run state; no resume-after-crash beyond the on-disk trace.
+- Adopting a payable after a crash assumes no one else entered the same invoice during the run.
+- Events logged before an interrupt appear twice in a resumed run's trace (LangGraph replays the node; the human
+  is still asked once).
 - Under heavy chaos the model is sometimes over-cautious (escalates instead of proposing). Safe, but it costs
   a human's time. Collection questions take ~3× the steps of single-item tasks.
 - 27 runs per version is enough to see regressions, not to claim tight reliability bounds.
 
 ## What I'd build next
 
-1. Move the loop to **LangGraph** for durable checkpoints, so a run can pause at an approval and resume hours
-   later, after a restart. Only `agent.py` changes; the write gate, ledger and verifier are framework-independent
-   by design.
-2. More write intents (vendor creation with its own fraud checks, payment runs) behind the same gate.
-3. Procedural memory: store a successful run's path as a playbook and measure the step reduction on reruns.
-4. Model comparison across providers on the same eval suite (cost vs pass rate).
-5. Vision fallback for apps without usable DOM structure.
+1. More write intents (vendor creation with its own fraud checks, payment runs) behind the same gate.
+2. Procedural memory: store a successful run's path as a playbook and measure the step reduction on reruns.
+3. Model comparison across providers on the same eval suite (cost vs pass rate).
+4. Vision fallback for apps without usable DOM structure.
 
 ## Assumptions
 
