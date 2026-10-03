@@ -6,3 +6,4 @@ src/company/data/
 *.pyc
 .pytest_cache/
 INTERVIEW-GUIDE.md
+.DS_Store
