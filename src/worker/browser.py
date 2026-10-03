@@ -113,6 +113,13 @@ class Browser:
                              f"Not opened: {', '.join(missing)}")
         return notes
 
+    def coverage_state(self) -> dict:
+        return {"listings": {k: list(v) for k, v in self.listings.items()}, "visited": sorted(self.visited)}
+
+    def restore_coverage(self, state: dict) -> None:
+        self.listings = {k: list(v) for k, v in state.get("listings", {}).items()}
+        self.visited = set(state.get("visited", []))
+
     def render(self, obs: Observation, elements: list[str] | None = None, limit: int = 4000) -> str:
         body = obs.text if len(obs.text) <= limit else obs.text[:limit] + "\n…[truncated]"
         tag = "trusted_content" if obs.trusted else "untrusted_content"

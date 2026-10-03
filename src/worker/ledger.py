@@ -82,6 +82,20 @@ class Ledger:
             return "(no facts recorded yet)"
         return "\n".join(f"{f.id}: {f.key} = {f.value!r}  [from {f.observation_id}, {f.source}]" for f in self.facts.values())
 
+    def to_state(self) -> dict:
+        """Full JSON-safe copy for checkpointing. Unlike to_dict(), never truncates observation text."""
+        return {"observations": [asdict(o) for o in self.observations.values()],
+                "facts": [asdict(f) for f in self.facts.values()]}
+
+    @classmethod
+    def from_state(cls, state: dict) -> "Ledger":
+        ledger = cls()
+        for o in state.get("observations", []):
+            ledger.observations[o["id"]] = Observation(**o)
+        for f in state.get("facts", []):
+            ledger.facts[f["id"]] = Fact(**f)
+        return ledger
+
     def to_dict(self) -> dict:
         return {
             "facts": [asdict(f) for f in self.facts.values()],

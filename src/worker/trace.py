@@ -15,7 +15,7 @@ RUNS_DIR = Path("runs")
 
 
 class Trace:
-    def __init__(self, task: str, run_id: str | None = None, quiet: bool = False) -> None:
+    def __init__(self, task: str, run_id: str | None = None, quiet: bool = False, resume: bool = False) -> None:
         self.run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
         self.dir = RUNS_DIR / self.run_id
         (self.dir / "shots").mkdir(parents=True, exist_ok=True)
@@ -23,7 +23,8 @@ class Trace:
         self.started = time.time()
         self.quiet = quiet
         self._fh = open(self.dir / "events.jsonl", "a")
-        self.log("task", task=task)
+        if not resume:   # a resumed run appends to the same events.jsonl; t restarts at 0 per process
+            self.log("task", task=task)
 
     def log(self, kind: str, **data) -> dict:
         event = {"t": round(time.time() - self.started, 2), "kind": kind, **data}

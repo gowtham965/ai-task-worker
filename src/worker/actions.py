@@ -107,6 +107,21 @@ class PayableWriter:
         self.clarifications: list[dict] = []
         self.named_vendor: str | None = None   # the vendor as the user wrote it, from the GoalSpec
         self._approvals = 0
+        # Payable ids that existed before this run (set by the graph engine). Used to recognise, after a crash
+        # and replay, a payable this run already wrote. None means "unknown" (loop engine): no adoption.
+        self.preexisting_ids: set[int] | None = None
+
+    def state(self) -> dict:
+        return {"executed": list(self.executed), "escalations": list(self.escalations),
+                "clarifications": list(self.clarifications), "named_vendor": self.named_vendor,
+                "approvals": self._approvals}
+
+    def restore(self, state: dict) -> None:
+        self.executed = list(state.get("executed", []))
+        self.escalations = list(state.get("escalations", []))
+        self.clarifications = list(state.get("clarifications", []))
+        self.named_vendor = state.get("named_vendor")
+        self._approvals = int(state.get("approvals", 0))
 
     # ------------------------------------------------------------ propose
 
