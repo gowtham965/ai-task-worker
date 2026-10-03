@@ -202,9 +202,12 @@ class Worker:
                         criteria = "\n".join(f"- {c}" for c in goal.get("success_criteria", []))
                         trace.log("verify", check="self-check requested before finish")
                         messages.append({"role": "tool", "tool_call_id": call["id"], "content":
-                                         "Before finishing, check each success criterion against what you actually "
-                                         f"observed (not what you assume):\n{criteria}\nIf any is unmet or unchecked, "
-                                         "keep working. If all are met, call finish again."})
+                                         "Before finishing, prove each success criterion from what you observed. "
+                                         "For every criterion, write one line: the criterion, MET or NOT MET, and "
+                                         "the obsN/factN that shows it. For a list or collection, name every item "
+                                         "you checked and its evidence. An unchecked item counts as NOT MET.\n"
+                                         f"{criteria}\nIf anything is NOT MET, keep working. Otherwise call "
+                                         "finish again with a summary consistent with that evidence."})
                         continue
                     return args.get("status", "failed"), args.get("summary", ""), step
                 result = self._dispatch(name, args, trace, ledger, browser, writer)

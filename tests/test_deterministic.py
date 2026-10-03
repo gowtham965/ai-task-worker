@@ -63,3 +63,18 @@ def test_vendor_resolution_exact_and_ambiguous():
     assert resolve_vendor("Acme Cloud Solutions LLP", VENDORS)["id"] == 5
     with pytest.raises(IntentRejected, match="several vendors"):
         resolve_vendor("Acme Cloud", VENDORS)
+
+
+def test_parse_account_ignores_ifsc_digits():
+    # v2 regression: joining all digits produced 502000112233440001234 and a false AP-02 fraud hold.
+    from worker.actions import parse_account
+    assert parse_account("Account No: 50200011223344   IFSC: HDFC0001234") == "50200011223344"
+    assert parse_account("50200011223344") == "50200011223344"
+    with pytest.raises(IntentRejected):
+        parse_account("Account 50200011223344 or 99887766554433")
+
+
+def test_parse_amount_with_label_and_rejects_multiple():
+    assert parse_amount("Total Amount Payable (INR) 23,780.00") == 23780.0
+    with pytest.raises(IntentRejected):
+        parse_amount("Subtotal 20,152.54 Total 23,780.00")

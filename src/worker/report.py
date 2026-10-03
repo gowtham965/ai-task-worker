@@ -26,6 +26,11 @@ def render(run_dir: Path) -> Path:
                     f"<td><q>{_e(f['quote'])}</q><br><small>{_e(f['source'])} · {_e(f['observation_id'])}</small></td></tr>"
                     for f in result["ledger"]["facts"])
     escalations = "".join(f"<li><pre>{_e(json.dumps(x, indent=1))}</pre></li>" for x in v.get("escalations", []))
+    notable = [e for e in events if e["kind"] in ("recovery", "policy", "approval", "ask_user", "error")]
+    decisions = "".join(
+        f"<tr class='{_e(e['kind'])}'><td>{e['t']}s</td><td>{_e(e['kind'])}</td><td>"
+        f"{_e(json.dumps({k: val for k, val in e.items() if k not in ('t', 'kind')}, ensure_ascii=False)[:400])}</td></tr>"
+        for e in notable)
     injections = [e for e in events if e["kind"] == "injection"]
     inj = "".join(f"<li>{_e(e['source'])}: {_e('; '.join(e['matches']))}</li>" for e in injections)
     timeline = "".join(
@@ -49,6 +54,7 @@ pre{{white-space:pre-wrap;background:#f6f7f9;padding:8px}}</style></head><body>
 <p><small>{result['steps']} steps · {result['usage']['calls']} model calls · {result['usage']['input_tokens']:,} in /
 {result['usage']['output_tokens']:,} out tokens · ≈${result['cost_usd']}</small></p>
 <h2>Independent verification {'passed' if v['passed'] else 'FAILED'}</h2><table>{checks}</table>
+{f'<h2>Recoveries, decisions and human touchpoints</h2><table>{decisions}</table>' if decisions else ''}
 <h2>Goal as understood</h2><pre>{_e(json.dumps(goal, indent=1, ensure_ascii=False))}</pre>
 <h2>Facts used (with provenance)</h2><table><tr><th>id</th><th>key</th><th>value</th><th>quote · source</th></tr>{facts}</table>
 {f'<h2>Escalations</h2><ul>{escalations}</ul>' if escalations else ''}

@@ -65,6 +65,7 @@ def verify(before: dict, writer, ledger: Ledger) -> dict:
 
     vendors = {v["id"]: v for v in after["vendors"]}
     cookies: dict[str, dict] = {}
+    texts: dict[str, str | None] = {}   # one fetch per source document
     for w in writer.executed:
         key = (w["vendor"]["id"], w["payload"]["invoice_no"])
         rows = [p for p in after["payables"] if (p["vendor_id"], p["invoice_no"]) == key]
@@ -84,10 +85,17 @@ def verify(before: dict, writer, ledger: Ledger) -> dict:
 
         for name, fid in w["facts"].items():
             fact = ledger.facts[fid]
-            site = config.site_for(fact.source)
-            if site and site not in cookies:
-                cookies[site] = _site_cookies(site)
-            text = _refetch(fact.source, cookies.get(site, {}))
+            text = texts.get(fact.source)
+            if text is None:
+                site = config.site_for(fact.source)
+                if site and site not in cookies:
+                    cookies[site] = _site_cookies(site)
+                text = _refetch(fact.source, cookies.get(site, {}))
+                if site and (text is None or "Sign in to" in text):
+                    # The verifier is subject to the same flaky world as the agent: re-sign-in once.
+                    cookies[site] = _site_cookies(site)
+                    text = _refetch(fact.source, cookies[site])
+                texts[fact.source] = text
             found = text is not None and _norm(fact.quote) in _norm(text)
             check(f"{label}: '{name}' quote re-found in source", found, f"{fact.source}: \"{fact.quote[:80]}\"")
 

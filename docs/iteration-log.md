@@ -48,3 +48,25 @@ Changes for v2:
   from memory.
 - **Self-check before "done"**: the first `finish(completed)` is answered with the GoalSpec success criteria
   and a request to check each against what was observed. One extra step per run.
+
+## v2 eval: 6/9
+
+`evals/results/20261003-172352.md`. Fixed: `acme_ambiguous` (the code gate made it ask) and `meridian_bec`
+(formal escalation via `escalate`). Steps per task dropped (e.g. bluepeak 23 → 13) because the
+same-document rule now gets explained up front instead of discovered by trial and error.
+
+Three failures, and **two of them were my bugs, not the model's**:
+
+| task | what happened | root cause |
+|---|---|---|
+| kaveri_happy (passed in v1) | **False fraud alarm.** A genuine invoice was held under AP-02 and escalated to the finance controller | The model recorded the payee as `Account No: 50200011223344 IFSC: HDFC0001234`. My normaliser joined *every* digit, giving `502000112233440001234`, which of course didn't match the vendor master. A safety rail that cries wolf trains people to override it, so this matters as much as a missed fraud |
+| bluepeak_chaos_portal | Agent did everything right; **verifier failed the run** | Session-expiry chaos also expired the *verifier's* portal session partway through re-fetching the invoice once per fact. The checker was less robust than the thing it checks |
+| readonly_backlog | Listed 1 of 4 unentered invoices; the self-check was rubber-stamped | A self-check that asks "are you sure?" gets "yes" |
+
+Changes for v3:
+- `parse_account` extracts exactly one 9–18 digit account number and rejects anything ambiguous;
+  `parse_amount` accepts a labelled amount but rejects strings with several amounts. Both are regression-tested.
+- The verifier fetches each source once and re-signs-in if it gets a login page.
+- The self-check now demands evidence: each criterion marked MET/NOT MET with the obs/fact id that proves it,
+  and every item of a collection named. Unchecked counts as NOT MET.
+- From v3 on, every task runs 3 times. A single pass can be luck; pass^3 is the number that matters.

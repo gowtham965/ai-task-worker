@@ -54,10 +54,21 @@ def load_policies() -> dict[str, dict]:
 
 
 def parse_amount(value: str) -> float:
-    cleaned = re.sub(r"[\s,₹]|INR|Rs\.?", "", value, flags=re.IGNORECASE)
-    if not re.fullmatch(r"\d+(\.\d{1,2})?", cleaned):
-        raise IntentRejected(f"Amount fact '{value}' is not a plain amount.")
-    return float(cleaned)
+    """Accept '23,780.00', 'INR 23,780.00' or 'Total Amount Payable (INR) 23,780.00'; reject anything with
+    zero or several distinct amounts in it rather than guess which one was meant."""
+    tokens = {float(t.replace(",", "")) for t in re.findall(r"\d[\d,]*(?:\.\d{1,2})?", value)}
+    if len(tokens) != 1:
+        raise IntentRejected(f"Amount fact '{value}' must contain exactly one amount.")
+    return tokens.pop()
+
+
+def parse_account(value: str) -> str:
+    """Pull the bank account number out of e.g. 'Account No: 50200011223344   IFSC: HDFC0001234'.
+    Joining every digit in the string (the v2 bug) glued the IFSC digits on and raised a false fraud alarm."""
+    runs = [r for r in re.findall(r"(?<![A-Z0-9])\d{9,18}(?![A-Z0-9])", value.upper())]
+    if len(set(runs)) != 1:
+        raise IntentRejected(f"Payee account fact '{value}' must contain exactly one 9-18 digit account number.")
+    return runs[0]
 
 
 def parse_date(value: str) -> str:
@@ -137,7 +148,7 @@ class PayableWriter:
             "invoice_no": facts["invoice_no"].value.strip(),
             "amount": parse_amount(facts["amount"].value),
             "due_date": parse_date(facts["due_date"].value),
-            "payee_account": re.sub(r"\D", "", facts["payee_account"].value),
+            "payee_account": parse_account(facts["payee_account"].value),
         }
         evidence = [f"{k} = {f.value!r} quoted from {f.source}: \"{f.quote}\"" for k, f in facts.items()]
         tainted = sorted({flag for f in facts.values() for flag in self.ledger.observations[f.observation_id].flags})
