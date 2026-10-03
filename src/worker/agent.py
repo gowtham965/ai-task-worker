@@ -76,7 +76,8 @@ How you work:
 - If you find a problem a human must handle (suspected fraud, a policy conflict), call escalate.
 - When done, call finish. status: "completed" (the goal was achieved), "escalated" (stopped by policy or
   a human decision, with nothing unsafe done), or "failed" (could not achieve the goal). The summary
-  should be short and say what was done, the key values, and anything suspicious you saw."""
+  should be short and say what was done, the key values (always name the invoice numbers involved), and
+  anything suspicious you saw."""
 
 
 def _fn(name: str, desc: str, props: dict, required: list[str] | None = None) -> dict:
@@ -187,7 +188,7 @@ class Worker:
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": f"Request: {task}\n\nYour GoalSpec:\n{json.dumps(goal, indent=1)}"},
         ]
-        nudges, self_checked = 0, False
+        nudges, self_checked, pushed_back = 0, False, False
         for step in range(1, self.max_steps + 1):
             self._compact(messages)
             reply = llm.chat(messages, TOOLS)
@@ -218,6 +219,13 @@ class Worker:
                         messages.append({"role": "tool", "tool_call_id": call["id"], "content":
                                          "Not accepted. Coverage measured by code:\n" + "\n".join(gaps) +
                                          f"\nOpen the remaining items, then finish. ({self.max_steps - step} steps left.)"})
+                        continue
+                    if args.get("status") == "failed" and gaps and not pushed_back:
+                        pushed_back = True
+                        trace.log("verify", check="failure pushed back: unopened items remain", gaps=gaps)
+                        messages.append({"role": "tool", "tool_call_id": call["id"], "content":
+                                         "Before giving up: these items were never opened:\n" + "\n".join(gaps) +
+                                         "\nUse goto on their URLs directly. If none can help, finish again."})
                         continue
                     if args.get("status") == "completed" and not self_checked:
                         # One self-check before accepting "done": the claim is tested against the GoalSpec

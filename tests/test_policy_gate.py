@@ -83,12 +83,23 @@ def test_payee_from_a_different_source_is_rejected(writer):
         w.propose(*ids)
 
 
-def test_ambiguous_vendor_requires_a_question(writer):
-    w, ledger, _ = writer
+def test_ambiguous_vendor_gate_asks_the_human(writer):
+    w, ledger, human = writer
     w.named_vendor = "Acme"
+    human.answers = {"acme": "Acme Cloud Solutions LLP"}
     ids = _invoice_facts(ledger, "Acme Cloud Services Pvt Ltd", "ACS-5521", "31,200.00", "2026-10-27", "778899001122")
-    with pytest.raises(IntentRejected, match="Ask the user"):
-        w.propose(*ids)
+    with pytest.raises(IntentRejected, match="Find Acme Cloud Solutions LLP"):
+        w.propose(*ids)                      # user meant the other Acme: wrong invoice, nothing written
+    assert len(human.asked) == 1
+
+
+def test_ambiguous_vendor_proceeds_when_answer_matches(writer, monkeypatch):
+    w, ledger, human = writer
+    monkeypatch.setattr(PayableWriter, "_via_ui", lambda self, p, v: (_ for _ in ()).throw(LookupError("no UI")))
+    w.named_vendor = "Acme"
+    human.answers = {"acme": "Acme Cloud Services Pvt Ltd"}
+    ids = _invoice_facts(ledger, "Acme Cloud Services Pvt Ltd", "ACS-5521", "31,200.00", "2026-10-27", "778899001122")
+    assert w.propose(*ids).status == "created"
 
 
 def test_over_threshold_needs_approval_and_declines_cleanly(writer):

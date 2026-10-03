@@ -140,9 +140,16 @@ class PayableWriter:
         if self.named_vendor and not self.clarifications:
             named = [v["name"] for v in vendors if _norm_name(self.named_vendor) in _norm_name(v["name"])]
             if len(named) > 1:
-                self.trace.log("policy", decision="ambiguous request", named_vendor=self.named_vendor, matches=named)
-                raise IntentRejected(f"The request says '{self.named_vendor}', which matches {named} in the vendor "
-                                     "master. Ask the user which vendor they mean before writing anything.")
+                # The gate asks the human itself (v4: told to ask, the model sometimes escalated instead).
+                question = f"Your request says '{self.named_vendor}'. Which vendor do you mean?"
+                self.trace.log("ask_user", question=question, options=named, asked_by="policy gate")
+                answer = self.human.ask(question, named)
+                self.trace.log("ask_user", answer=answer)
+                self.clarifications.append({"question": question, "answer": answer})
+                if _norm_name(vendor["name"]) not in _norm_name(answer) and _norm_name(answer) not in _norm_name(vendor["name"]):
+                    raise IntentRejected(f"The user means '{answer}', but this invoice is from {vendor['name']}. "
+                                         f"Find {answer}'s latest invoice instead.")
+
         fields = {
             "vendor_id": vendor["id"],
             "invoice_no": facts["invoice_no"].value.strip(),
@@ -217,19 +224,21 @@ class PayableWriter:
         except (PlaywrightError, LookupError) as e:
             status, info = 0, str(e).splitlines()[0][:200]
 
-        if status not in (200, 201, 409, 422):
+        attempt = 0
+        while status not in (200, 201, 409, 422) and attempt < 3:
             # Ambiguous failure (timeout, crash, 5xx): the write may or may not have happened.
-            # Reconcile against the ERP before any retry. A blind retry of a non-idempotent write is how
+            # Reconcile against the ERP before every retry. A blind retry of a non-idempotent write is how
             # invoices get paid twice (v3 found exactly that).
+            attempt += 1
             if self._find(vendor, payload):
                 self.trace.log("recovery", failure=f"ambiguous write failure ({status or info})",
                                strategy="reconciled: the payable exists, so it is not retried")
-                status, info = 201, {"via": "ui (reconciled)"}
-            else:
-                self.trace.log("recovery", failure=f"write failed ({status or info})",
-                               strategy="confirmed nothing was written; back off 2s, retry via ERP API")
-                time.sleep(2)
-                status, info = self._via_api(payload)
+                status, info = 201, {"via": "reconciled"}
+                break
+            self.trace.log("recovery", failure=f"write failed ({status or info})",
+                           strategy=f"confirmed nothing was written; back off {2 * attempt}s, retry {attempt}/3 via ERP API")
+            time.sleep(2 * attempt)
+            status, info = self._via_api(payload)
 
         if status == 409:
             return Outcome("duplicate", f"ERP reported a duplicate: {info}")
