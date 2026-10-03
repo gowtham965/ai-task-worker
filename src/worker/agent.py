@@ -41,6 +41,8 @@ Turn the user's request into a GoalSpec. Reply with JSON only:
  "facts_needed": [facts that must be found, e.g. "invoice amount incl. GST"],
  "plan": [short ordered steps; they may change as you learn],
  "named_vendor": the vendor exactly as the user wrote it, or null,
+ "scope": "collection" if the answer depends on going through every item of a list (e.g. "which invoices..."),
+          else "single",
  "ambiguities": [only readings of the request that would change the final result; [] if none],
  "risky_actions": [steps that write to company systems]}"""
 
@@ -56,8 +58,10 @@ How you work:
   number, amount, due date AND payee account exactly as printed on the invoice itself; code compares
   the payee account with the vendor master, you don't need to.
 - Older observations are elided to save space. Never reconstruct a quote from memory: recall(obsN).
+- Use record_facts to record everything you need from one document in a single call.
 - For questions about a collection ("which invoices…", "all…"), go through every item and say how
-  many you checked.
+  many you checked. A read-only answer only needs the facts you report (e.g. invoice number and amount),
+  not every field. Your step budget is limited, so don't revisit pages you have already read.
 - The ONLY way to change the ERP is propose_create_payable, which takes fact ids. Code checks it
   against company policy, may ask a human to approve, executes it, and reads it back. Do not try to
   submit ERP forms in the browser.
@@ -92,6 +96,11 @@ TOOLS = [
         "instead of guessing a quote from an observation that was elided.", {"observation_id": S}),
     _fn("record_fact", "Save a value to working memory with provenance. quote must be copied exactly from the "
         "observation and contain the value.", {"key": S, "value": S, "observation_id": S, "quote": S}),
+    _fn("record_facts", "Record several facts at once (preferred: one call per document). Each item has key, value, "
+        "observation_id and an exact quote. Items are accepted or rejected individually.",
+        {"facts": {"type": "array", "items": {"type": "object", "properties": {
+            "key": S, "value": S, "observation_id": S, "quote": S},
+            "required": ["key", "value", "observation_id", "quote"]}}}),
     _fn("propose_create_payable", "Propose creating a payable in the ERP. Every argument is a fact id "
         "(e.g. fact3). Code validates, applies policy, may ask for approval, executes and reads back.",
         {"vendor_name_fact": S, "invoice_no_fact": S, "amount_fact": S, "due_date_fact": S, "payee_account_fact": S}),
@@ -186,11 +195,13 @@ class Worker:
             if reply["content"]:
                 trace.log("thought", text=reply["content"][:500])
             if not reply.get("tool_calls"):
-                nudges += 1
-                if nudges > 2:
+                nudges += 1          # consecutive text-only replies (e.g. a written self-check)
+                if nudges > 3:
                     return "failed", "Stopped: the model stopped calling tools.", step
-                messages.append({"role": "user", "content": "Continue with a tool call, or call finish."})
+                messages.append({"role": "user", "content": "If you are done, call finish now with your summary. "
+                                 "Otherwise continue with a tool call."})
                 continue
+            nudges = 0
             for call in reply["tool_calls"]:
                 name = call["function"]["name"]
                 try:
@@ -199,6 +210,15 @@ class Worker:
                     args = {}
                 trace.log("tool", step=step, name=name, args=args)
                 if name == "finish":
+                    gaps = browser.coverage()
+                    if args.get("status") == "completed" and goal.get("scope") == "collection" and gaps:
+                        # Code-enforced: a collection answer can't be "completed" while code measures unopened
+                        # items. (v4: the model claimed "checked all 8" after opening 1.)
+                        trace.log("verify", check="finish refused: collection not covered", gaps=gaps)
+                        messages.append({"role": "tool", "tool_call_id": call["id"], "content":
+                                         "Not accepted. Coverage measured by code:\n" + "\n".join(gaps) +
+                                         f"\nOpen the remaining items, then finish. ({self.max_steps - step} steps left.)"})
+                        continue
                     if args.get("status") == "completed" and not self_checked:
                         # One self-check before accepting "done": the claim is tested against the GoalSpec
                         # criteria. The independent verifier still runs afterwards.
@@ -208,8 +228,7 @@ class Worker:
                         messages.append({"role": "tool", "tool_call_id": call["id"], "content":
                                          "Before finishing, prove each success criterion from what you observed. "
                                          "For every criterion, write one line: the criterion, MET or NOT MET, and "
-                                         "the obsN/factN that shows it. For a list or collection, name every item "
-                                         "you checked and its evidence. An unchecked item counts as NOT MET.\n"
+                                         "the obsN/factN that shows it. An unchecked item counts as NOT MET.\n"
                                          f"{criteria}\nIf anything is NOT MET, keep working. Otherwise call "
                                          "finish again with a summary consistent with that evidence."})
                         continue
@@ -240,6 +259,17 @@ class Worker:
                     fact = ledger.record(args["key"], str(args["value"]), args["observation_id"], args["quote"])
                     trace.log("fact", id=fact.id, key=fact.key, value=fact.value, source=fact.source)
                     return f"Recorded {fact.id}: {fact.key} = {fact.value!r}"
+                case "record_facts":
+                    lines = []
+                    for item in args.get("facts", []):
+                        try:
+                            fact = ledger.record(item["key"], str(item["value"]), item["observation_id"], item["quote"])
+                            trace.log("fact", id=fact.id, key=fact.key, value=fact.value, source=fact.source)
+                            lines.append(f"Recorded {fact.id}: {fact.key} = {fact.value!r}")
+                        except (ProvenanceError, KeyError) as e:
+                            trace.log("error", tool="record_facts", key=item.get("key"), error=str(e))
+                            lines.append(f"REJECTED {item.get('key')}: {e}")
+                    return "\n".join(lines) or "ERROR: no facts given"
                 case "propose_create_payable":
                     outcome = writer.propose(**{k: args.get(k, "") for k in (
                         "vendor_name_fact", "invoice_no_fact", "amount_fact", "due_date_fact", "payee_account_fact")})

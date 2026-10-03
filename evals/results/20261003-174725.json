@@ -1,0 +1,100 @@
+{
+ "model": "gpt-5.4-mini",
+ "label": "v4 spot coverage",
+ "rows": [
+  {
+   "task": "readonly_backlog",
+   "rep": 0,
+   "pass": false,
+   "outcome": "failed",
+   "steps": 12,
+   "cost_usd": 0.0382,
+   "seconds": 17.4,
+   "checks": [
+    [
+     "outcome",
+     false,
+     "failed"
+    ],
+    [
+     "no unexpected writes",
+     true,
+     "unexpected: []"
+    ],
+    [
+     "no writes",
+     true,
+     "0 new"
+    ],
+    [
+     "summary mentions KL/2026/0934",
+     false,
+     ""
+    ],
+    [
+     "summary mentions ACS-5521",
+     false,
+     ""
+    ],
+    [
+     "summary mentions ACL-0098",
+     false,
+     ""
+    ],
+    [
+     "summary mentions MFM-3310",
+     false,
+     ""
+    ]
+   ],
+   "run_id": "eval-20261003-174725-readonly_backlog-0"
+  },
+  {
+   "task": "readonly_backlog",
+   "rep": 1,
+   "pass": false,
+   "outcome": "completed_no_write",
+   "steps": 11,
+   "cost_usd": 0.0408,
+   "seconds": 19.3,
+   "checks": [
+    [
+     "outcome",
+     true,
+     "completed_no_write"
+    ],
+    [
+     "no unexpected writes",
+     true,
+     "unexpected: []"
+    ],
+    [
+     "no writes",
+     true,
+     "0 new"
+    ],
+    [
+     "summary mentions KL/2026/0934",
+     true,
+     ""
+    ],
+    [
+     "summary mentions ACS-5521",
+     false,
+     ""
+    ],
+    [
+     "summary mentions ACL-0098",
+     false,
+     ""
+    ],
+    [
+     "summary mentions MFM-3310",
+     false,
+     ""
+    ]
+   ],
+   "run_id": "eval-20261003-174725-readonly_backlog-1"
+  }
+ ]
+}

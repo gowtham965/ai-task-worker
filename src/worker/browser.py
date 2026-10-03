@@ -61,6 +61,8 @@ class Browser:
         self.page = self.context.new_page()
         self.page.set_default_timeout(config.PAGE_TIMEOUT_MS)
         self.current_page_obs: str | None = None   # observation id of the page currently shown
+        self.listings: dict[str, list[str]] = {}    # list-page URL -> child item URLs it links to
+        self.visited: set[str] = set()
 
     def close(self) -> None:
         self.context.close()
@@ -78,8 +80,34 @@ class Browser:
         if obs.flags:
             self.trace.log("injection", observation=obs.id, source=url, matches=obs.flags)
         self.current_page_obs = obs.id
+        self.visited.add(url)
+        self._track_listing(url, snap["elements"])
         # Refs are page-scoped (obs3.e7) so a ref from a page the model has left can't hit the wrong element.
         return obs, [e.replace("[e", f"[{obs.id}.e", 1) for e in snap["elements"]]
+
+    def _track_listing(self, url: str, elements: list[str]) -> None:
+        """Remember item links on list pages (e.g. /mail/ -> /mail/1..8) so coverage can be checked later."""
+        base = urlparse(url).path
+        children = []
+        for e in elements:
+            if " -> " in e:
+                href = urljoin(url, e.rsplit(" -> ", 1)[1].strip())
+                path = urlparse(href).path
+                if path.startswith(base) and path != base and "/" not in path[len(base):].strip("/"):
+                    children.append(href)
+        if len(set(children)) >= 2 and not config.is_trusted(url):
+            self.listings[url] = sorted(set(children))
+
+    def coverage(self) -> list[str]:
+        """For every list page seen, which of its items were never opened."""
+        notes = []
+        for page_url, items in self.listings.items():
+            opened = [i for i in items if i in self.visited]
+            if len(opened) < len(items):
+                missing = [urlparse(i).path for i in items if i not in self.visited]
+                notes.append(f"{urlparse(page_url).path} lists {len(items)} items; you opened {len(opened)}. "
+                             f"Not opened: {', '.join(missing)}")
+        return notes
 
     def render(self, obs: Observation, elements: list[str] | None = None, limit: int = 4000) -> str:
         body = obs.text if len(obs.text) <= limit else obs.text[:limit] + "\n…[truncated]"
