@@ -215,28 +215,39 @@ class PayableWriter:
         try:
             status, info = self._via_ui(payload, vendor)
         except (PlaywrightError, LookupError) as e:
-            self.trace.log("recovery", failure="ERP form automation broke", error=str(e).splitlines()[0][:200],
-                           strategy="fall down the tool ladder: UI -> ERP API")
-            status, info = self._via_api(payload)
+            status, info = 0, str(e).splitlines()[0][:200]
 
-        if status == 503:
-            self.trace.log("recovery", failure="ERP returned 503", strategy="back off 2s, retry once via API")
-            time.sleep(2)
-            status, info = self._via_api(payload)
+        if status not in (200, 201, 409, 422):
+            # Ambiguous failure (timeout, crash, 5xx): the write may or may not have happened.
+            # Reconcile against the ERP before any retry. A blind retry of a non-idempotent write is how
+            # invoices get paid twice (v3 found exactly that).
+            if self._find(vendor, payload):
+                self.trace.log("recovery", failure=f"ambiguous write failure ({status or info})",
+                               strategy="reconciled: the payable exists, so it is not retried")
+                status, info = 201, {"via": "ui (reconciled)"}
+            else:
+                self.trace.log("recovery", failure=f"write failed ({status or info})",
+                               strategy="confirmed nothing was written; back off 2s, retry via ERP API")
+                time.sleep(2)
+                status, info = self._via_api(payload)
 
         if status == 409:
             return Outcome("duplicate", f"ERP reported a duplicate: {info}")
         if status not in (200, 201):
             return Outcome("failed", f"ERP rejected the payable (HTTP {status}): {info}")
 
-        with _api() as c:
-            stored = c.get("/erp/api/payables", params={"vendor_id": vendor["id"],
-                                                       "invoice_no": payload["invoice_no"]}).json()
-        record = stored[0] if stored else None
+        record = self._find(vendor, payload)
         self.executed.append({"intent": "create_payable", "payload": payload, "vendor": vendor,
                               "facts": {k: f.id for k, f in facts.items()}, "record": record})
-        self.trace.log("tool", action="payable created", payable=record, channel=info.get("via") if isinstance(info, dict) else None)
+        self.trace.log("tool", action="payable created", payable=record,
+                       channel=info.get("via") if isinstance(info, dict) else None)
         return Outcome("created", f"Payable #{record['id']} created and read back from the ERP.", record["id"], record)
+
+    def _find(self, vendor: dict, payload: dict) -> dict | None:
+        with _api() as c:
+            rows = c.get("/erp/api/payables", params={"vendor_id": vendor["id"],
+                                                     "invoice_no": payload["invoice_no"]}).json()
+        return rows[0] if rows else None
 
     def _via_ui(self, payload: dict, vendor: dict) -> tuple[int, dict | str]:
         page = self.browser.context.new_page()

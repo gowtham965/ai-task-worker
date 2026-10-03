@@ -65,6 +65,9 @@ How you work:
   Do not repeat the identical failing call.
 - If the request is ambiguous (e.g. a vendor name matches more than one vendor) ask_user before acting.
   Do not guess. If it is clear, don't ask.
+- Approvals are requested by code when you propose a write; never escalate just because approval is needed.
+- If something you found doesn't match the request (e.g. the wrong vendor's invoice), keep looking before
+  you escalate.
 - If a write is held by policy or declined by the approver, do not try to work around it.
 - If you find a problem a human must handle (suspected fraud, a policy conflict), call escalate.
 - When done, call finish. status: "completed" (the goal was achieved), "escalated" (stopped by policy or
@@ -80,7 +83,8 @@ def _fn(name: str, desc: str, props: dict, required: list[str] | None = None) ->
 S = {"type": "string"}
 TOOLS = [
     _fn("goto", "Open a URL or path on the company intranet.", {"url": S}),
-    _fn("click", "Click an interactive element by its ref, e.g. e7. Links navigate.", {"ref": S}),
+    _fn("click", "Click an interactive element by its ref exactly as shown, e.g. obs3.e7. Links navigate; "
+        "PDF links are opened and read.", {"ref": S}),
     _fn("fill", "Type into an input (search boxes, filters). Not for ERP write forms.", {"ref": S, "text": S}),
     _fn("login", "Sign in to a site using vault credentials.", {"site": {"type": "string", "enum": ["erp", "portal"]}}),
     _fn("open_document", "Download a PDF (e.g. an invoice attachment) and read its text.", {"url": S}),

@@ -60,6 +60,7 @@ class Browser:
         self.context = self._browser.new_context(viewport={"width": 1100, "height": 900})
         self.page = self.context.new_page()
         self.page.set_default_timeout(config.PAGE_TIMEOUT_MS)
+        self.current_page_obs: str | None = None   # observation id of the page currently shown
 
     def close(self) -> None:
         self.context.close()
@@ -76,7 +77,9 @@ class Browser:
         obs = self.ledger.observe(url, kind, text, trusted, flags=[] if trusted else scan_for_injection(text))
         if obs.flags:
             self.trace.log("injection", observation=obs.id, source=url, matches=obs.flags)
-        return obs, snap["elements"]
+        self.current_page_obs = obs.id
+        # Refs are page-scoped (obs3.e7) so a ref from a page the model has left can't hit the wrong element.
+        return obs, [e.replace("[e", f"[{obs.id}.e", 1) for e in snap["elements"]]
 
     def render(self, obs: Observation, elements: list[str] | None = None, limit: int = 4000) -> str:
         body = obs.text if len(obs.text) <= limit else obs.text[:limit] + "\n…[truncated]"
@@ -114,8 +117,12 @@ class Browser:
         self._with_retry(f"open {site} login", lambda t: self.page.goto(creds.login_url, timeout=t))
         self.page.fill("#username", creds.username)
         self.page.fill("#password", creds.password)
-        self.page.click("button[type=submit]")
-        self.page.wait_for_load_state()
+        # The post-login redirect can be slow; don't let the click's navigation wait fail the sign-in.
+        self.page.click("button[type=submit]", no_wait_after=True)
+        try:
+            self.page.wait_for_url(lambda u: not urlparse(u).path.endswith("/login"), timeout=config.PAGE_TIMEOUT_MS * 3)
+        except PlaywrightTimeout:
+            pass
         if self._session_expired():
             raise BrowserError(f"Sign-in to {site} failed with vault credentials.")
 
@@ -141,7 +148,22 @@ class Browser:
         obs, elements = self._observe()
         return f"Signed in to {site} (credentials supplied from vault).\n" + self.render(obs, elements)
 
+    def _resolve_ref(self, ref: str) -> str:
+        """'obs3.e7' -> 'e7' on the current page. If obs3 is an earlier page, go back to it first."""
+        if "." not in ref:
+            return ref
+        obs_id, local = ref.split(".", 1)
+        if obs_id != self.current_page_obs:
+            obs = self.ledger.observations.get(obs_id)
+            if obs is None or obs.kind != "page":
+                raise BrowserError(f"Unknown page in ref {ref}.")
+            self.trace.log("recovery", failure="stale element ref", ref=ref,
+                           strategy=f"return to {obs.source} (the page that ref came from), then click")
+            self.goto(obs.source)
+        return local
+
     def click(self, ref: str) -> str:
+        ref = self._resolve_ref(ref)
         loc = self.page.locator(f"[data-ref='{ref}']")
         if loc.count() == 0:
             obs, elements = self._observe()
@@ -150,6 +172,8 @@ class Browser:
         if urlparse(self.page.url).path.startswith(WRITE_PATHS) and loc.evaluate("e => e.tagName") == "BUTTON":
             raise BrowserError("Submitting ERP forms through the browser is disabled. Use propose_create_payable.")
         href = loc.get_attribute("href")
+        if href and href.lower().endswith(".pdf") or (href and "/download/" in href):
+            return self.open_document(urljoin(self.page.url, href))   # documents are read, not navigated
         if href and not href.startswith("#"):
             return self.goto(urljoin(self.page.url, href))
         self._with_retry(f"click {ref}", lambda t: loc.click(timeout=t))
@@ -158,6 +182,7 @@ class Browser:
         return self.render(obs, elements)
 
     def fill(self, ref: str, text: str) -> str:
+        ref = self._resolve_ref(ref)
         if urlparse(self.page.url).path.startswith(WRITE_PATHS):
             raise BrowserError("Typing into ERP write forms is disabled. Use propose_create_payable.")
         loc = self.page.locator(f"[data-ref='{ref}']")

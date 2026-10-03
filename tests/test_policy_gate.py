@@ -107,3 +107,21 @@ def test_api_path_writes_after_approval(writer, monkeypatch):
                          "912010045566778")
     out = w.propose(*ids)
     assert out.status == "created" and out.record["approval_ref"].startswith("APR-")
+
+
+def test_ambiguous_failure_is_reconciled_not_retried(writer, monkeypatch):
+    """v3 regression: the form submit succeeded, the page then timed out, and the fallback retried the write."""
+    w, ledger, _ = writer
+
+    def submit_then_time_out(self, payload, vendor):
+        self._via_api(payload)                                   # the write lands...
+        raise LookupError("Locator.click: Timeout 3000ms exceeded.")   # ...but the UI never confirms it
+
+    monkeypatch.setattr(PayableWriter, "_via_ui", submit_then_time_out)
+    ids = _invoice_facts(ledger, "Kaveri Logistics Pvt Ltd", "KL/2026/0934", "23,780.00", "2026-10-26",
+                         "50200011223344")
+    out = w.propose(*ids)
+    assert out.status == "created"
+    rows = [p for p in httpx.get(f"{config.BASE_URL}/admin/state").json()["payables"]
+            if p["invoice_no"] == "KL/2026/0934"]
+    assert len(rows) == 1 and len(w.executed) == 1

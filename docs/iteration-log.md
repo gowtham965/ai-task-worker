@@ -70,3 +70,32 @@ Changes for v3:
 - The self-check now demands evidence: each criterion marked MET/NOT MET with the obs/fact id that proves it,
   and every item of a collection named. Unchecked counts as NOT MET.
 - From v3 on, every task runs 3 times. A single pass can be luck; pass^3 is the number that matters.
+
+## v3 eval: 20/27 runs, 6/9 tasks pass^3
+
+`evals/results/20261003-172846.md` (3 repeats per task, $1.17 total). Fixed and now stable at 3/3: kaveri_happy,
+bluepeak_approval, sharma_duplicate, acme_ambiguous, meridian_bec, kaveri_chaos_erp.
+
+**The most important bug of the build** showed up in `bluepeak_chaos_portal` rep 0:
+
+> The ERP form submit *succeeded*. Under slow-load chaos the page after the submit took 8 s, the click timed
+> out, and the writer treated that as "UI automation broke" and fell back to the API, **retrying a write that
+> had already happened.** The ERP rejected the retry as a duplicate, so the worker believed nothing was written
+> and reported a duplicate. The independent verifier caught it: "1 new payable, unexpected: BPS-INV-2231".
+
+In a system without a uniqueness constraint that's a double payment. **Fix:** after any ambiguous failure
+(timeout, crash, 5xx) the writer reconciles against the ERP first; it retries only when it has confirmed
+that nothing was written. A regression test simulates "the write lands, the UI never confirms it".
+
+Other v3 findings:
+- **Sign-in under slow load:** the login click waited for the slow redirect and timed out. It now submits
+  without waiting on navigation and then waits for the URL to leave `/login`.
+- **The model escalated "needs approval" itself** instead of proposing the write and letting code ask the
+  approver. Fixed in the prompt: approvals are code's job.
+- **acme_unambiguous 2/3:** clicking a PDF link raised a confusing "Download is starting" error; the model
+  then opened the *other* Acme's invoice and escalated. PDF links now route to `open_document`; prompt says
+  keep looking before escalating on a mismatch.
+- **readonly_backlog 0/3, root cause found in the tool, not the model:** element refs were per page (`e6`),
+  and the model kept clicking refs from the inbox after it had moved to the ERP, hitting the wrong element.
+  Refs are now page-scoped (`obs2.e6`); clicking a ref from an earlier page returns to that page first and
+  logs a "stale element ref" recovery.
