@@ -99,3 +99,66 @@ Other v3 findings:
   and the model kept clicking refs from the inbox after it had moved to the ERP, hitting the wrong element.
   Refs are now page-scoped (`obs2.e6`); clicking a ref from an earlier page returns to that page first and
   logs a "stale element ref" recovery.
+
+## Read-only backlog: a bigger model is not the fix
+
+Between v3 and v4 I worked on `readonly_backlog` ("which inbox invoices aren't in the ERP yet?") on its own:
+
+| attempt | result | what it showed |
+|---|---|---|
+| page-scoped refs | 0/1 | Stale-ref recovery fired correctly twice; the model still opened one invoice and stopped |
+| **same task on `gpt-5.4`** (larger model) | 0/2, **$0.61/run** (15× cost) | It was thorough but spent 18 of 40 steps on one-at-a-time `record_fact` calls and hit the step budget. Capacity wasn't the bottleneck; tool granularity was |
+| batch `record_facts` | 0/2 | Fewer steps, but the model sampled 2 of 8 emails and honestly said "checked 2" |
+| code-measured coverage in the self-check | 0/2 | One run said "please continue" and stopped; **the other claimed "I checked all 8 inbox items" after opening 1** |
+| coverage *enforced* for `scope: collection` | 1/2 | First pass. The other run covered all 8 items, then wrote its self-check as text and my loop counted it as "stopped calling tools" (a bug in my nudge counter, fixed) |
+
+Lessons: measure claims in code rather than asking the model whether it's sure, and fix tools before
+reaching for a bigger model.
+
+## v4 eval: 20/27 runs, 5/9 tasks pass^3
+
+`evals/results/` (v4). Runs got cheaper and shorter (~$0.03 and ~10 steps per task vs ~$0.045 and ~16).
+`bluepeak_chaos_portal` went **0/3 → 3/3** (reconcile-before-retry plus robust sign-in), `acme_unambiguous` 2/3 → 3/3.
+Two regressions, both understood:
+- `kaveri_chaos_erp` 2/3: **my reconcile refactor dropped the second retry.** Redesigned form fails → API → the
+  ERP's one-time 503 → no further attempt. Now a bounded loop (3 attempts, backoff, reconcile before each).
+- `acme_ambiguous` 1/3: the code gate blocked the write and said "ask the user"; the model escalated instead.
+  Now **the gate asks the human itself** and checks the answer against the invoice's vendor. If the user means
+  the other Acme, the write is rejected with "find that vendor's invoice instead". Two tests cover both answers.
+- `sharma_duplicate` 2/3: correct behaviour, but one summary didn't name the invoice; the prompt now requires
+  invoice numbers in summaries.
+- `readonly_backlog` 0/3: one run 3 of 4 invoices, one hit the step budget, one gave up with `failed` (not
+  covered by the collection gate). A `failed` finish with unopened items is now pushed back once.
+
+## v5 eval: 26/27 runs, 8/9 tasks pass^3
+
+`evals/results/20261003-180207.md` (gpt-5.4-mini, 3 repeats, $1.38 for all 27 runs).
+
+| task | v3 | v4 | **v5** |
+|---|---|---|---|
+| kaveri_happy | 3/3 | 3/3 | **3/3** |
+| bluepeak_approval | 3/3 | 3/3 | **3/3** |
+| sharma_duplicate | 3/3 | 2/3 | **3/3** |
+| acme_ambiguous | 3/3 | 1/3 | **3/3** |
+| acme_unambiguous | 2/3 | 3/3 | **3/3** |
+| meridian_bec (fraud) | 3/3 | 3/3 | **3/3** |
+| bluepeak_chaos_portal | 0/3 | 3/3 | 2/3 |
+| kaveri_chaos_erp | 3/3 | 2/3 | **3/3** |
+| readonly_backlog | 0/3 | 0/3 | **3/3** |
+
+The remaining failure is **safe but over-cautious**: under chaos, the model saw the older, already-paid
+Bluepeak invoice (BPS-INV-2209) in the ERP, treated it as a possible duplicate of BPS-INV-2231, decided it
+should verify the payee itself, and escalated instead of proposing the write. Code would have done both checks
+correctly. Nothing was written. I'm leaving it as a known limitation rather than tuning the prompt to this
+one eval.
+
+## Across all versions
+
+- **Every failure was safe.** In 72 scored runs, the worker never wrote a wrong value, a fraudulent payee or an
+  unapproved over-threshold payable. The one write it didn't account for (v3, the double-write) was caught by
+  the verifier, and the run was marked failed.
+- **Most fixes moved behaviour from prompt to code**: same-document rule, ambiguity gate, coverage
+  enforcement, reconcile-before-retry. Prompt-only fixes were the ones that regressed.
+- **Three of the bugs were in my own safety code**: the digit-joining false fraud alarm, the verifier less
+  robust than the agent, and the reconcile refactor that dropped a retry. Evals found them; reading the code
+  hadn't.
