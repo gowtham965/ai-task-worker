@@ -1,0 +1,2 @@
+{% extends "base.html" %}{% block title %}Finance wiki - AP policies{% endblock %}{% block body %}
+<h1>Accounts payable policies</h1>{% for p in policies %}<h3>{{ p.id }} · {{ p.title }}</h3><p>{{ p.text }}</p>{% endfor %}{% endblock %}

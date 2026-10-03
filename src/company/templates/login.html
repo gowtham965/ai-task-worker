@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block title %}Sign in - {{ site }}{% endblock %}{% block brand %}{{ site }}{% endblock %}{% block body %}
+<h1>Sign in to {{ site }}</h1>{% if msg %}<div class="err">{{ msg }}</div>{% endif %}
+<form method="post" action="{{ action }}"><label for="username">Email</label><input id="username" name="username">
+<label for="password">Password</label><input id="password" name="password" type="password"><br><button type="submit">Sign in</button></form>{% endblock %}

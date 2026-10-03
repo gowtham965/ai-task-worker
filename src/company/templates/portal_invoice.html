@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block title %}Invoice {{ inv.invoice_no }}{% endblock %}{% block brand %}Bluepeak Billing Portal{% endblock %}{% block nav %}<a href="/portal/">Invoices</a>{% endblock %}{% block body %}
+<h1>Invoice {{ inv.invoice_no }}</h1>
+<p>Issued {{ inv.issue_date }} · Due {{ inv.due_date }} · Total INR {{ inv.amount|inr }}</p>
+<p><a href="/portal/download/{{ inv.pdf }}">Download PDF ({{ inv.pdf }})</a></p>{% endblock %}

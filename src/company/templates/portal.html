@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block title %}Bluepeak Billing - Invoices{% endblock %}{% block brand %}Bluepeak Billing Portal{% endblock %}{% block nav %}<a href="/portal/">Invoices</a>{% endblock %}{% block body %}
+<h1>Invoices for Northwind Ops Pvt Ltd</h1>
+<table><tr><th>Invoice</th><th>Issued</th><th>Due</th><th>Total (INR)</th></tr>
+{% for i in invoices %}<tr><td><a href="/portal/invoices/{{ i.invoice_no }}">{{ i.invoice_no }}</a></td><td>{{ i.issue_date }}</td><td>{{ i.due_date }}</td><td>{{ i.amount|inr }}</td></tr>{% endfor %}
+</table>{% endblock %}

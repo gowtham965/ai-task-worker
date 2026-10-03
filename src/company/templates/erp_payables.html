@@ -1,0 +1,4 @@
+{% extends "erp_home.html" %}{% block title %}Payables{% endblock %}{% block body %}
+<h1>Payables</h1>{% if created %}<div class="ok">Payable #{{ created }} created.</div>{% endif %}
+<table><tr><th>#</th><th>Vendor</th><th>Invoice</th><th>Amount (INR)</th><th>Due</th><th>Payee account</th><th>Status</th></tr>
+{% for p in payables %}<tr><td>{{ p.id }}</td><td>{{ p.vendor }}</td><td>{{ p.invoice_no }}</td><td>{{ p.amount|inr }}</td><td>{{ p.due_date }}</td><td>{{ p.payee_account }}</td><td>{{ p.status }}</td></tr>{% endfor %}</table>{% endblock %}

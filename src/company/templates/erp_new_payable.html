@@ -1,0 +1,14 @@
+{% extends "erp_home.html" %}{% block title %}New payable{% endblock %}{% block body %}
+<h1>{% if redesign %}Post a supplier bill{% else %}New payable{% endif %}</h1>
+{% for e in errors %}<div class="err">{{ e }}</div>{% endfor %}
+<form method="post" action="/erp/payables/new">
+{% if redesign %}<button type="submit" id="post-bill">Submit for posting</button>{% endif %}
+<label for="vendor_id">{% if redesign %}Supplier{% else %}Vendor{% endif %}</label>
+<select id="vendor_id" name="vendor_id"><option value="">-- select --</option>{% for v in vendors %}<option value="{{ v.id }}" {% if form.vendor_id == v.id|string %}selected{% endif %}>{{ v.name }}</option>{% endfor %}</select>
+<label for="invoice_no">{% if redesign %}Bill reference{% else %}Invoice number{% endif %}</label><input id="invoice_no" name="invoice_no" value="{{ form.invoice_no or '' }}">
+<label for="amount">{% if redesign %}Bill total{% else %}Amount (INR){% endif %}</label><input id="amount" name="amount" value="{{ form.amount or '' }}">
+<label for="due_date">{% if redesign %}Payment due{% else %}Due date{% endif %}</label><input id="due_date" name="due_date" placeholder="YYYY-MM-DD" value="{{ form.due_date or '' }}">
+<label for="payee_account">{% if redesign %}Remit-to account{% else %}Payee account{% endif %}</label><input id="payee_account" name="payee_account" value="{{ form.payee_account or '' }}">
+<label for="approval_ref">{% if redesign %}Approval ID{% else %}Approval reference{% endif %} (required above INR 50,000)</label><input id="approval_ref" name="approval_ref" value="{{ form.approval_ref or '' }}">
+{% if not redesign %}<br><button type="submit">Create payable</button>{% endif %}
+</form>{% endblock %}

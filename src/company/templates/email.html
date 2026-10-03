@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% block title %}{{ email.subject }}{% endblock %}{% block body %}
+<h2>{{ email.subject }}</h2>
+<p><b>From:</b> {{ email.from_name }} &lt;{{ email.from_addr }}&gt;<br><b>Received:</b> {{ email.received_at }}</p>
+<pre>{{ email.body }}</pre>
+{% if email.attachment %}<p>Attachment: <a href="/files/{{ email.attachment }}">{{ email.attachment }}</a></p>{% endif %}
+<p><a href="/mail/">Back to inbox</a></p>{% endblock %}

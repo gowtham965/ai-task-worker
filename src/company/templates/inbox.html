@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% block title %}Inbox - ap@northwind.in{% endblock %}{% block body %}
+<h1>Inbox: ap@northwind.in</h1>
+<table><tr><th>Received</th><th>From</th><th>Subject</th><th></th></tr>
+{% for e in emails %}<tr><td>{{ e.received_at }}</td><td>{{ e.from_name }} &lt;{{ e.from_addr }}&gt;</td>
+<td><a href="/mail/{{ e.id }}">{{ e.subject }}</a></td><td>{% if e.attachment %}📎{% endif %}</td></tr>{% endfor %}
+</table>{% endblock %}
