@@ -12,6 +12,7 @@ a redesigned form, a duplicate invoice, an ambiguous vendor, and an invoice that
 payment to a fraudster's bank account. The evals measure how the worker handles each of them.
 
 > **Results:** see [Measured results](#measured-results) and [docs/iteration-log.md](docs/iteration-log.md).
+> **New here?** [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) explains the problem, the solution and how to run it, step by step.
 
 ## The idea in one line
 
