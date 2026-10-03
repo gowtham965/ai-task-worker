@@ -119,3 +119,28 @@ def test_ambiguous_failure_is_reconciled_not_retried(writer, monkeypatch):
     rows = [p for p in httpx.get(f"{config.BASE_URL}/admin/state").json()["payables"]
             if p["invoice_no"] == "KL/2026/0934"]
     assert len(rows) == 1 and len(w.executed) == 1
+
+
+def test_payable_written_before_a_crash_is_adopted_not_duplicated(writer):
+    """Review Focus 5: the process died after the ERP write but before the checkpoint; replay must adopt it."""
+    w, ledger, _ = writer
+    before = httpx.get(f"{config.BASE_URL}/admin/state").json()
+    w.preexisting_ids = {p["id"] for p in before["payables"]}
+    httpx.post(f"{config.BASE_URL}/erp/api/payables", headers={"Authorization": "Bearer erp-demo-token"}, json={
+        "vendor_id": 1, "invoice_no": "KL/2026/0934", "amount": "23780.00", "due_date": "2026-10-26",
+        "payee_account": "50200011223344", "approval_ref": ""})          # the write that "happened before the crash"
+    ids = _invoice_facts(ledger, "Kaveri Logistics Pvt Ltd", "KL/2026/0934", "23,780.00", "2026-10-26",
+                         "50200011223344")
+    out = w.propose(*ids)
+    assert out.status == "created" and "adopted" in out.message
+    assert len(w.executed) == 1
+    rows = [p for p in httpx.get(f"{config.BASE_URL}/admin/state").json()["payables"]
+            if p["invoice_no"] == "KL/2026/0934"]
+    assert len(rows) == 1
+
+
+def test_genuine_duplicate_still_reported_when_preexisting(writer):
+    w, ledger, _ = writer
+    w.preexisting_ids = {p["id"] for p in httpx.get(f"{config.BASE_URL}/admin/state").json()["payables"]}
+    ids = _invoice_facts(ledger, "Sharma Office Supplies", "SOS-1187", "7,960.00", "2026-10-09", "30112233445")
+    assert w.propose(*ids).status == "duplicate"

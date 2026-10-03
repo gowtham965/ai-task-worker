@@ -41,3 +41,48 @@ def test_graph_stops_at_the_step_budget(fresh_company, tmp_path, monkeypatch):
     result = _graph_runner(ScriptedHuman(), tmp_path, script, max_steps=3).run("loop forever", run_id="budget")
     assert result.outcome == "failed" and result.steps == 3
     assert "Stopped after 3 steps" in result.summary
+
+
+from fakes import bluepeak_script  # noqa: E402
+
+TASK = "Bluepeak says our new invoice is ready. Get it into the ERP."
+
+
+def test_paused_run_resumes_in_a_new_runner(fresh_company, tmp_path, monkeypatch):
+    from worker.graph import Paused
+    monkeypatch.chdir(tmp_path)
+    human = ScriptedHuman(approve_all=True)
+    script = bluepeak_script(fresh_company)
+    paused = _graph_runner(human, tmp_path, script).run(TASK, run_id="resume-me", detach=True)
+    assert isinstance(paused, Paused) and paused.pending["type"] == "approve"
+    assert paused.pending["request"]["fields"]["invoice_no"] == "BPS-INV-2231"
+    assert _rows(fresh_company, "BPS-INV-2231") == []                    # nothing written while waiting
+
+    result = _graph_runner(human, tmp_path, script).resume("resume-me")   # a new runner = a new process
+    assert result.outcome == "completed_verified"
+    rows = _rows(fresh_company, "BPS-INV-2231")
+    assert len(rows) == 1 and rows[0]["approval_ref"]
+    assert rows[0]["created_via"] == "ui"         # Review Focus 1: fresh, signed-out browser still wrote via the UI
+    assert len(human.approvals) == 1              # Review Focus 2: asked once despite node replay
+    events = (tmp_path / "runs" / "resume-me" / "events.jsonl").read_text()
+    assert events.count('"action": "payable created"') == 1
+    assert '"kind": "resumed"' in events
+
+
+def test_denied_after_restart_writes_nothing(fresh_company, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    script = bluepeak_script(fresh_company, final_status="escalated")
+    _graph_runner(ScriptedHuman(), tmp_path, script).run(TASK, run_id="deny-me", detach=True)
+    result = _graph_runner(ScriptedHuman(approve_all=False), tmp_path, script).resume("deny-me")
+    assert result.outcome == "escalated_safely"   # Review Focus 4
+    assert _rows(fresh_company, "BPS-INV-2231") == []
+
+
+def test_resuming_a_finished_or_unknown_run_is_a_clear_error(fresh_company, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runner = _graph_runner(ScriptedHuman(), tmp_path, kaveri_script(fresh_company))
+    runner.run("Kaveri", run_id="done-run")
+    with pytest.raises(ValueError, match="not paused"):                  # Review Focus 3
+        _graph_runner(ScriptedHuman(), tmp_path, kaveri_script(fresh_company)).resume("done-run")
+    with pytest.raises(ValueError, match="not paused"):
+        _graph_runner(ScriptedHuman(), tmp_path, kaveri_script(fresh_company)).resume("no-such-run")

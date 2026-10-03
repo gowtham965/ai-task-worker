@@ -183,6 +183,19 @@ class PayableWriter:
                                                          "invoice_no": fields["invoice_no"]}).json()
         if existing and "no_duplicates" in self.policies:
             rec = existing[0]
+            already_ours = any(w["record"] and w["record"]["id"] == rec["id"] for w in self.executed)
+            if (self.preexisting_ids is not None and rec["id"] not in self.preexisting_ids and not already_ours
+                    and abs(rec["amount"] - fields["amount"]) < 0.005 and rec["payee_account"] == fields["payee_account"]):
+                # Written by this run before a crash/restart, but never checkpointed. Adopt it; never write again.
+                # (Prototype assumption: no one else enters this invoice during the run. See README limitations.)
+                self.trace.log("recovery", failure="payable from this run found after restart", payable=rec,
+                               strategy="adopt it; do not write again")
+                self.executed.append({"intent": "create_payable", "vendor": vendor,
+                                      "payload": {**fields, "amount": f"{fields['amount']:.2f}",
+                                                  "approval_ref": rec.get("approval_ref") or ""},
+                                      "facts": {k: f.id for k, f in facts.items()}, "record": rec})
+                return Outcome("created", f"Payable #{rec['id']} was already written by this run before a restart; "
+                               "adopted, not written again.", rec["id"], rec)
             self.trace.log("policy", policy="AP-03", decision="no write: duplicate", existing=rec)
             return Outcome("duplicate", f"Payable #{rec['id']} already exists for {vendor['name']} "
                            f"{fields['invoice_no']} (amount {rec['amount']}, status {rec['status']}). Nothing written.",
