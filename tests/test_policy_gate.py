@@ -2,39 +2,22 @@
 
 These tests skip the LLM entirely: they play the part of a model that believed every word of the
 fraudulent invoice and proposed the write anyway. The code path alone has to stop it.
-Runs the company app in-process on a spare port.
+Uses the in-process company server from conftest.py.
 """
-
-import threading
-import time
 
 import httpx
 import pytest
-import uvicorn
 
 from company import seed
-from company.server import app
 from worker import config
 from worker.actions import IntentRejected, PayableWriter
 from worker.human import ScriptedHuman
 from worker.ledger import Ledger
 from worker.trace import Trace
 
-PORT = 8811
-
-
-@pytest.fixture(scope="module", autouse=True)
-def company(tmp_path_factory):
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="error"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    while not server.started:
-        time.sleep(0.05)
-    old = config.BASE_URL
-    config.BASE_URL = f"http://127.0.0.1:{PORT}"
+@pytest.fixture(autouse=True)
+def _company(company_url):
     yield
-    config.BASE_URL = old
-    server.should_exit = True
 
 
 @pytest.fixture
