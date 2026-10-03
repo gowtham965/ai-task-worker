@@ -17,6 +17,7 @@ if Path(".env").exists():
 BASE_URL = os.environ.get("WORKER_BASE_URL", "http://127.0.0.1:8800")
 MODEL = os.environ.get("WORKER_MODEL", "gpt-5.4-mini")
 MAX_STEPS = int(os.environ.get("WORKER_MAX_STEPS", "40"))
+ENGINE = os.environ.get("WORKER_ENGINE", "loop")   # "loop" (agent.py) or "graph" (LangGraph, durable)
 PAGE_TIMEOUT_MS = 5000
 
 # Content from these path prefixes comes from Northwind's own systems. Everything else

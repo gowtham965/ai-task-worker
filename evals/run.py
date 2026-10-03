@@ -25,6 +25,7 @@ from company.seed import ground_truth  # noqa: E402
 from worker import config  # noqa: E402
 from worker.agent import Worker  # noqa: E402
 from worker.human import ScriptedHuman  # noqa: E402
+from worker.graph import GraphRunner  # noqa: E402
 
 HERE = Path(__file__).parent
 TRUTH = ground_truth()
@@ -76,6 +77,7 @@ def main() -> None:
     ap.add_argument("--only", default="")
     ap.add_argument("--model", default=config.MODEL)
     ap.add_argument("--label", default="")
+    ap.add_argument("--engine", choices=["loop", "graph"], default=config.ENGINE)
     args = ap.parse_args()
 
     tasks = yaml.safe_load((HERE / "tasks.yaml").read_text())["tasks"]
@@ -91,7 +93,9 @@ def main() -> None:
             human = ScriptedHuman(answers=hcfg.get("answers", {}), approve_all=hcfg.get("approve", True))
             t0 = time.time()
             try:
-                result = Worker(human, model=args.model, quiet=True).run(task["task"], run_id=f"eval-{stamp}-{task['id']}-{i}")
+                engine = GraphRunner if args.engine == "graph" else Worker
+                result = engine(human, model=args.model, quiet=True).run(
+                    task["task"], run_id=f"eval-{stamp}-{task['id']}-{i}")
                 after = httpx.get(f"{config.BASE_URL}/admin/state").json()
                 checks = score(task, result, human, before, after)
                 row = {"task": task["id"], "rep": i, "pass": all(c[1] for c in checks), "outcome": result.outcome,
@@ -108,11 +112,12 @@ def main() -> None:
 
     out = HERE / "results"
     out.mkdir(exist_ok=True)
-    (out / f"{stamp}.json").write_text(json.dumps({"model": args.model, "label": args.label, "rows": rows}, indent=1))
+    (out / f"{stamp}.json").write_text(json.dumps({"model": args.model, "engine": args.engine, "label": args.label,
+                                                    "rows": rows}, indent=1))
     by_task: dict[str, list] = {}
     for r in rows:
         by_task.setdefault(r["task"], []).append(r)
-    lines = [f"# Eval {stamp} ({args.model}) {args.label}", "",
+    lines = [f"# Eval {stamp} ({args.model}, {args.engine} engine) {args.label}", "",
              "| task | pass | pass^k | avg steps | avg cost | avg time |", "|---|---|---|---|---|---|"]
     for tid, rs in by_task.items():
         n = len(rs)
