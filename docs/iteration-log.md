@@ -154,7 +154,7 @@ one eval.
 
 ## Across all versions
 
-- **Every failure was safe.** In 72 scored runs, the worker never wrote a wrong value, a fraudulent payee or an
+- **Every failure was safe.** In 110 scored runs (all versions and spot checks, audited from `evals/results/*.json`), the worker never wrote a wrong value, a fraudulent payee or an
   unapproved over-threshold payable. The one write it didn't account for (v3, the double-write) was caught by
   the verifier, and the run was marked failed.
 - **Most fixes moved behaviour from prompt to code**: same-document rule, ambiguity gate, coverage

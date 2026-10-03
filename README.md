@@ -133,8 +133,8 @@ seed ground truth (never from the worker's summary). Model: `gpt-5.4-mini`.
 | kaveri_chaos_erp | ERP form redesigned + 503 on submit | 3/3 | 10 | $0.030 |
 | readonly_backlog | "which inbox invoices aren't in the ERP?" (no writes) | 3/3 | 34 | $0.180 |
 
-**26/27 runs, 8/9 tasks pass every repeat, $1.38 for the whole suite.** No run wrote a wrong value, a
-fraudulent payee or an unapproved payable. The one failure escalated unnecessarily (details in the log).
+**26/27 runs, 8/9 tasks pass every repeat, $1.38 for the whole suite.** Across all 110 scored runs of every
+version, no run wrote a wrong value, a fraudulent payee or an unapproved payable. The one failure escalated unnecessarily (details in the log).
 
 How it got there: **v1 5/9 → v2 6/9 → v3 20/27 → v4 20/27 → v5 26/27.** Each step is in
 [docs/iteration-log.md](docs/iteration-log.md) with the run that exposed it. The highlights:
