@@ -7,3 +7,4 @@ src/company/data/
 .pytest_cache/
 INTERVIEW-GUIDE.md
 .DS_Store
+.superpowers/
