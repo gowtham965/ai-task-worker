@@ -86,3 +86,27 @@ def test_resuming_a_finished_or_unknown_run_is_a_clear_error(fresh_company, tmp_
         _graph_runner(ScriptedHuman(), tmp_path, kaveri_script(fresh_company)).resume("done-run")
     with pytest.raises(ValueError, match="not paused"):
         _graph_runner(ScriptedHuman(), tmp_path, kaveri_script(fresh_company)).resume("no-such-run")
+
+
+class _CrashAfterWrite(FakeLLM):
+    """Dies on the model call that follows the payable write: a process crash mid-run, not a human pause."""
+
+    def chat(self, messages, tools=None, json_mode=False):
+        if sum(1 for m in messages if m["role"] == "assistant") == 3:
+            raise RuntimeError("process killed")
+        return super().chat(messages, tools, json_mode)
+
+
+def test_crashed_run_resumes_from_its_last_checkpoint(fresh_company, tmp_path, monkeypatch):
+    from worker.graph import GraphRunner
+    monkeypatch.chdir(tmp_path)
+    goal, calls = kaveri_script(fresh_company)
+    crashing = GraphRunner(ScriptedHuman(), quiet=True, db_path=tmp_path / "cp.sqlite",
+                           llm_factory=lambda: _CrashAfterWrite(goal, calls))
+    with pytest.raises(RuntimeError, match="process killed"):
+        crashing.run("Kaveri", run_id="crashed")
+    assert len(_rows(fresh_company, "KL/2026/0934")) == 1               # the write happened before the crash
+
+    result = _graph_runner(ScriptedHuman(), tmp_path, kaveri_script(fresh_company)).resume("crashed")
+    assert result.outcome == "completed_verified"
+    assert len(_rows(fresh_company, "KL/2026/0934")) == 1               # resumed, not rewritten

@@ -28,7 +28,7 @@ def main() -> None:
                    "slow_first_load,session_expiry,erp_flaky,erp_redesign")
     p.add_argument("--engine", choices=["loop", "graph"], default=config.ENGINE)
     p.add_argument("--detach", action="store_true", help="graph engine: exit at the first question or approval")
-    p.add_argument("--resume", metavar="RUN_ID", help="continue a paused graph run")
+    p.add_argument("--resume", metavar="RUN_ID", help="continue a paused (or crashed) graph run")
     decision = p.add_mutually_exclusive_group()
     decision.add_argument("--approve", action="store_true", help="with --resume: approve without prompting")
     decision.add_argument("--deny", action="store_true", help="with --resume: deny without prompting")

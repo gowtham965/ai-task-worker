@@ -207,11 +207,13 @@ class GraphRunner:
     def resume(self, run_id: str, detach: bool = False) -> RunResult | Paused:
         app, rt, cfg = self._app(run_id)
         snap = app.get_state(cfg)
-        pending = [i.value for t in snap.tasks for i in t.interrupts]
-        if not snap.next or not pending:
+        if not snap.next:
             rt.close()
             raise ValueError(f"Run {run_id} is not paused (it finished, or no such run).")
-        return self._drive(run_id, Command(resume=answer_interrupt(pending[0], self.human)), detach, (app, rt, cfg))
+        pending = [i.value for t in snap.tasks for i in t.interrupts]
+        # Paused for a human: answer the question. Crashed mid-run: continue from the last checkpoint (None).
+        payload = Command(resume=answer_interrupt(pending[0], self.human)) if pending else None
+        return self._drive(run_id, payload, detach, (app, rt, cfg))
 
     def _app(self, run_id: str):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
