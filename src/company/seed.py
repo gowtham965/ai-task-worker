@@ -7,13 +7,14 @@ SQLite database and regenerates every invoice PDF from scratch.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 from pathlib import Path
 
 from fpdf import FPDF
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(os.environ.get("COMPANY_DATA_DIR") or Path(__file__).parent / "data")
 DB_PATH = DATA_DIR / "company.db"
 FILES_DIR = DATA_DIR / "files"
 CHAOS_PATH = DATA_DIR / "chaos.json"

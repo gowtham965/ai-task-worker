@@ -93,6 +93,8 @@ class PayableWriter:
         self.policies = load_policies()
         self.executed: list[dict] = []     # what the verifier will check
         self.escalations: list[dict] = []
+        self.clarifications: list[dict] = []
+        self.named_vendor: str | None = None   # the vendor as the user wrote it, from the GoalSpec
         self._approvals = 0
 
     # ------------------------------------------------------------ propose
@@ -121,6 +123,15 @@ class PayableWriter:
         with _api() as c:
             vendors = c.get("/erp/api/vendors").json()
         vendor = resolve_vendor(facts["vendor_name"].value, vendors)
+
+        # Ambiguity gate: if the user's own words match several vendors, a human must pick one.
+        # Finding the newest invoice across all of them is a guess, however reasonable it looks.
+        if self.named_vendor and not self.clarifications:
+            named = [v["name"] for v in vendors if _norm_name(self.named_vendor) in _norm_name(v["name"])]
+            if len(named) > 1:
+                self.trace.log("policy", decision="ambiguous request", named_vendor=self.named_vendor, matches=named)
+                raise IntentRejected(f"The request says '{self.named_vendor}', which matches {named} in the vendor "
+                                     "master. Ask the user which vendor they mean before writing anything.")
         fields = {
             "vendor_id": vendor["id"],
             "invoice_no": facts["invoice_no"].value.strip(),
