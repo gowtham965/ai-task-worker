@@ -178,7 +178,9 @@ How it got there: **v1 5/9 → v2 6/9 → v3 20/27 → v4 20/27 → v5 26/27.** 
 
 ## What I'd build next
 
-1. Resume a paused run from its trace (approvals that arrive hours later).
+1. Move the loop to **LangGraph** for durable checkpoints, so a run can pause at an approval and resume hours
+   later, after a restart. Only `agent.py` changes; the write gate, ledger and verifier are framework-independent
+   by design.
 2. More write intents (vendor creation with its own fraud checks, payment runs) behind the same gate.
 3. Procedural memory: store a successful run's path as a playbook and measure the step reduction on reruns.
 4. Model comparison across providers on the same eval suite (cost vs pass rate).
