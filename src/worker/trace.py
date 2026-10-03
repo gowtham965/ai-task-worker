@@ -39,7 +39,8 @@ class Trace:
         return self.dir / "shots" / f"{n:02d}-{label}.png"
 
     def close(self) -> None:
-        self._fh.close()
+        if not self._fh.closed:
+            self._fh.close()
 
 
 _COLORS = {"tool": "cyan", "recovery": "yellow", "policy": "magenta", "approval": "magenta", "ask_user": "magenta",

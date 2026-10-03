@@ -60,11 +60,15 @@ class Browser:
         self.context = self._browser.new_context(viewport={"width": 1100, "height": 900})
         self.page = self.context.new_page()
         self.page.set_default_timeout(config.PAGE_TIMEOUT_MS)
+        self._closed = False
         self.current_page_obs: str | None = None   # observation id of the page currently shown
         self.listings: dict[str, list[str]] = {}    # list-page URL -> child item URLs it links to
         self.visited: set[str] = set()
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         self.context.close()
         self._browser.close()
         self._pw.stop()
