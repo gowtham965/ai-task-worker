@@ -80,8 +80,11 @@ def verify(before: dict, writer, ledger: Ledger) -> dict:
               f"ERP {row['due_date']} vs fact {w['payload']['due_date']}")
         check(f"{label}: payee is the vendor-master account", row["payee_account"] == vendors[key[0]]["bank_account"],
               f"{row['payee_account']}")
-        if row["amount"] > 50000:
-            check(f"{label}: approval reference recorded (AP-01)", bool(row["approval_ref"]), row["approval_ref"] or "")
+        # Same threshold the write gate enforced, read from the company's policy wiki (not a constant here).
+        threshold = writer.policies.get("approval_threshold", {}).get("rule", {}).get("amount_inr")
+        if threshold is not None and row["amount"] > threshold:
+            check(f"{label}: approval reference recorded (AP-01, above INR {threshold:,})", bool(row["approval_ref"]),
+                  row["approval_ref"] or "")
 
         for name, fid in w["facts"].items():
             fact = ledger.facts[fid]

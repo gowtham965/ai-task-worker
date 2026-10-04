@@ -144,3 +144,25 @@ def test_genuine_duplicate_still_reported_when_preexisting(writer):
     w.preexisting_ids = {p["id"] for p in httpx.get(f"{config.BASE_URL}/admin/state").json()["payables"]}
     ids = _invoice_facts(ledger, "Sharma Office Supplies", "SOS-1187", "7,960.00", "2026-10-09", "30112233445")
     assert w.propose(*ids).status == "duplicate"
+
+
+def test_verifier_uses_the_company_threshold_not_a_constant(writer):
+    """The verifier must follow the threshold in the company's policy, like the write gate does."""
+    from worker.verifier import verify
+    w, ledger, _ = writer
+    pol = w.policies["approval_threshold"]
+    w.policies["approval_threshold"] = {**pol, "rule": {**pol["rule"], "amount_inr": 20000}}
+    before = httpx.get(f"{config.BASE_URL}/admin/state").json()
+    httpx.post(f"{config.BASE_URL}/erp/api/payables", headers={"Authorization": "Bearer erp-demo-token"}, json={
+        "vendor_id": 1, "invoice_no": "KL/2026/0934", "amount": "23780.00", "due_date": "2026-10-26",
+        "payee_account": "50200011223344", "approval_ref": ""})          # above the 20k policy, no approval
+    rec = [p for p in httpx.get(f"{config.BASE_URL}/admin/state").json()["payables"]
+           if p["invoice_no"] == "KL/2026/0934"][0]
+    ids = _invoice_facts(ledger, "Kaveri Logistics Pvt Ltd", "KL/2026/0934", "23,780.00", "2026-10-26",
+                         "50200011223344")
+    keys = ["vendor_name", "invoice_no", "amount", "due_date", "payee_account"]
+    w.executed.append({"intent": "create_payable", "vendor": {"id": 1, "name": "Kaveri Logistics Pvt Ltd"},
+                       "payload": {"invoice_no": "KL/2026/0934", "amount": "23780.00", "due_date": "2026-10-26"},
+                       "facts": dict(zip(keys, ids)), "record": rec})
+    checks = [c for c in verify(before, w, ledger)["checks"] if "approval reference" in c["check"]]
+    assert checks and not checks[0]["pass"]
