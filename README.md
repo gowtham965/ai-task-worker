@@ -177,6 +177,42 @@ How it got there: **v1 5/9 → v2 6/9 → v3 20/27 → v4 20/27 → v5 26/27 →
 - **The verifier decides the outcome.** The agent's `finish(status)` is a claim. A run where the agent says
   "completed" but the verifier fails is reported as `failed_verification`.
 
+## Generalization: what changes for a different task
+
+**Unchanged for any task in this company.** The engine (`graph.py`), the step logic and finish rules
+(`steps.py`), the browser and its recoveries (`browser.py`), the facts ledger, the human-in-the-loop, the
+verifier's generic checks (no unexpected writes, existing records untouched, every quote re-found in its
+source) and the evidence report. The 9 eval tasks run through the same code with no task-specific branches:
+entering an invoice, approving a large one, refusing a duplicate, asking about an ambiguous vendor, holding a
+fraudulent invoice, and answering a read-only question across the whole inbox. A new *read* task (look
+something up, compare two systems, report a figure) needs no code at all.
+
+**What a new kind of write needs.** Writes are deliberately not generic: each one is a typed intent behind the
+policy gate. Adding one, say "mark a payable as paid" or "update a vendor's contact email", means:
+1. a tool schema in `prompts.py` whose arguments are fact ids, not values
+2. a method on the writer (like `PayableWriter.propose`) that resolves the facts, applies that action's rules,
+   asks for approval when a rule says so, executes (UI first, API fallback), reconciles before any retry,
+   and reads the result back
+3. one `case` in `steps.dispatch`
+4. the action's own checks in the verifier
+5. eval tasks for it, including the ways it should refuse
+
+That is roughly a day per action, and it's intentional: the gate is where trust comes from, so it shouldn't be
+generated on the fly by the model.
+
+**What is specific to this company today.**
+- `ENVIRONMENT` in `prompts.py` describes Northwind's systems and URLs. For another company this becomes data:
+  a description of its systems, loaded per tenant.
+- Policy **values** (the ₹50,000 threshold, who approves, who gets escalations) come from the company's wiki
+  at runtime. The policy **types** the gate understands (`approval_threshold`, `payee_must_match_master`,
+  `no_duplicates`) are code; a new kind of rule needs a small handler.
+- Credentials are a per-site vault entry in `config.py`.
+
+**What other kinds of tools would need.** Desktop applications would be another tool backend on the same
+ladder (structured APIs first, then the OS accessibility tree, then vision as the last resort). They would
+produce observations into the same ledger and write only through the same typed intents, so the safety model
+doesn't change with the tool.
+
 ## Limitations (honest)
 
 - One domain (accounts payable) and one write intent (create payable). New write types need a new typed

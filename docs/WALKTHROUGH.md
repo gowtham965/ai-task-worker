@@ -280,4 +280,5 @@ Chaos switches you can combine with `--reset --chaos`: `slow_first_load`, `sessi
   manager instead of demo credentials.
 - Recognising "my own" payable after a crash assumes nobody else entered the same invoice during the run.
 
-More in the README's limitations and next steps.
+More in the README's limitations and next steps, and in its **Generalization** section: what stays
+unchanged for a different task, and what a new kind of action or tool would need.
