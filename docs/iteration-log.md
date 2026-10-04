@@ -203,3 +203,9 @@ New behaviour, pinned by offline tests (40 total, no API key needed):
 
 Known cosmetic issue: events logged before an interrupt (the intent and "approval requested") appear twice in a
 resumed run's trace, because LangGraph replays the node up to the interrupt. The human is still asked once.
+
+**Found while recording the demo video:** starting a new run with a run id that already had a LangGraph
+checkpoint silently inherited the old run's ledger, writer state and ERP snapshot, and the verifier graded it
+against the wrong run (`failed_verification` on a run that was actually correct). `GraphRunner.run` now refuses
+an id with saved state ("use --resume"), and default ids carry a random suffix so two runs started in the same
+second can't collide. Two tests pin both.

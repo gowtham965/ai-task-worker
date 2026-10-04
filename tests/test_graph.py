@@ -110,3 +110,16 @@ def test_crashed_run_resumes_from_its_last_checkpoint(fresh_company, tmp_path, m
     result = _graph_runner(ScriptedHuman(), tmp_path, kaveri_script(fresh_company)).resume("crashed")
     assert result.outcome == "completed_verified"
     assert len(_rows(fresh_company, "KL/2026/0934")) == 1               # resumed, not rewritten
+
+
+def test_reusing_a_run_id_with_saved_state_is_refused(fresh_company, tmp_path, monkeypatch):
+    """A new run must never inherit another run's checkpoint (found while recording the demo)."""
+    monkeypatch.chdir(tmp_path)
+    _graph_runner(ScriptedHuman(), tmp_path, kaveri_script(fresh_company)).run("Kaveri", run_id="taken")
+    with pytest.raises(ValueError, match="already exists"):
+        _graph_runner(ScriptedHuman(), tmp_path, kaveri_script(fresh_company)).run("Kaveri again", run_id="taken")
+
+
+def test_default_run_ids_are_unique(tmp_path):
+    from worker.graph import new_run_id
+    assert len({new_run_id() for _ in range(50)}) == 50

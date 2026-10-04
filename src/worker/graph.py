@@ -14,6 +14,7 @@ interrupt. PayableWriter.propose only reads before it asks.
 
 from __future__ import annotations
 
+import secrets
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -38,6 +39,11 @@ from worker.trace import RUNS_DIR, Trace
 from worker.verifier import snapshot
 
 CHECKPOINT_DB = RUNS_DIR / "checkpoints.sqlite"
+
+
+def new_run_id() -> str:
+    """Timestamp for readability plus a random suffix, so two runs started in the same second never collide."""
+    return f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2)}"
 
 
 class State(TypedDict, total=False):
@@ -201,8 +207,14 @@ class GraphRunner:
         self.llm_factory = llm_factory or (lambda: LLM(model))
 
     def run(self, task: str, run_id: str | None = None, detach: bool = False) -> RunResult | Paused:
-        run_id = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
-        return self._drive(run_id, {"task": task, "run_id": run_id}, detach)
+        run_id = run_id or new_run_id()
+        app, rt, cfg = self._app(run_id)
+        if app.get_state(cfg).values:
+            # Starting a new task on an existing thread would inherit that run's ledger, writer state and
+            # ERP snapshot, and the verifier would grade against the wrong run.
+            rt.close()
+            raise ValueError(f"Run {run_id} already exists. Use --resume {run_id} to continue it, or a new run id.")
+        return self._drive(run_id, {"task": task, "run_id": run_id}, detach, (app, rt, cfg))
 
     def resume(self, run_id: str, detach: bool = False) -> RunResult | Paused:
         app, rt, cfg = self._app(run_id)
